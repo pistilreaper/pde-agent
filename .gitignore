@@ -1,0 +1,15 @@
+runs_archive/
+__pycache__/
+data/
+*.Identifier
+checkpoints/
+runs_archive/
+code/
+output/
+config.yaml
+task1/
+task2/
+task3/
+sample_submission/
+__pycache__/
+.ipynb_checkpoints/
