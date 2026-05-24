@@ -106,7 +106,7 @@ Agent 需要为 PDE 神经算子预测任务生成完整可运行代码，并支
 
 | 任务 | 数据 | 输入 → 输出 | 特殊要求 |
 |------|------|-------------|----------|
-| Task 1 | `1D_Burgers_Sols_Nu0.001.hdf5` / `task1_val.hdf5` / `task1_test.hdf5` | 10 步 → 200 步 | $\nu=0.001$，可用官方 checkpoint；训练/微调应基于 PDEBench 大型训练集，`task1_val.hdf5` 仅作验证 |
+| Task 1 | `1D_Burgers_Sols_Nu0.001.hdf5` / `task1_val.hdf5` / `task1_test.hdf5` | 10 步 → 200 步 | $\nu=0.001$，可用官方 checkpoint；训练/微调应优先基于 PDEBench 大型训练集或官方 checkpoint 微调，`task1_val.hdf5` 仅作验证 |
 | Task 2 | `task2_part{0,1,2}_train.h5` / `task2_test.h5` | 10 步 → 200 步 | 测试不提供 $\nu$，必须从头训练 |
 | Task 3 | `KS_train.hdf5` / `KS_val.hdf5` / `KS_test.hdf5` | 20 步 → 400 步 | 测试不提供 $\lambda_2$，必须从头训练 |
 
@@ -141,6 +141,9 @@ code/
 - 归一化参数必须在训练集上计算，并保存到 checkpoint。
 - Task 2 的 `nu` 和 Task 3 的 `lambda2` 训练时可用，测试时不可用。
 - 测试集 loader 不能假设存在 `nu` 或 `lambda2` 字段。
+- Task 1 必须先明确选择“官方 checkpoint 微调”或“基于 PDEBench 大训练集训练/微调”作为主路线。
+- Task 1 中 `task1_val.hdf5` 默认仅作验证；只有在你明确论证官方 checkpoint 路径和 PDEBench 大训练集路径都不适合当前实验时，才允许将其作为兜底训练数据。
+- `code-ref/` 的 Task 1 数据策略不能直接继承；它只可作为 CLI、I/O、评分实现和工程拆分的参考。
 
 ### 3.2 必须实现的类与函数
 
@@ -384,6 +387,9 @@ Task 3 可将谱能量损失用于长时统计段，使模型不仅追逐逐点 
 --grad_weight
 --unroll_chunks
 --resume
+--dry_run
+--profile_only
+--profile_steps
 ```
 
 默认值建议：
@@ -406,7 +412,27 @@ parse_args
 → write metrics.json and time.json
 ```
 
-### 6.3 Task 3 训练要点
+### 6.3 Harness 预检要求
+
+- `train.py --dry_run` 必须只做轻量预检：
+  - CLI 解析
+  - dataloader 构建
+  - 1 个 batch 的最小前向 / 反向 smoke test
+  - 不进入正式 epoch 训练
+- `train.py --profile_only --profile_steps N` 必须执行少量训练 step，并输出训练时间估算。
+- 以上两个模式都必须在 `output_dir/preflight.json` 写入结构化结果，至少包含：
+
+```json
+{
+  "train_smoke_ok": true,
+  "infer_smoke_ok": false,
+  "estimated_total_train_seconds": 1234.5
+}
+```
+
+- 如果无法给出 `estimated_total_train_seconds`，视为工程实现不合格，不应直接启动正式训练。
+
+### 6.4 Task 3 训练要点
 
 1. 训练时可读取 `lambda2`，但推理时不可读取。
 2. 若使用 `lambda2_encoder`，训练时可加入参数监督损失。
@@ -415,7 +441,7 @@ parse_args
 5. 早停指标应使用 `compute_segment_scores_ks(...)["total"]`。
 6. 训练时间虽不计精度分，但正式 session 仍需小于 12 小时。
 
-### 6.4 训练伪代码
+### 6.5 训练伪代码
 
 ```python
 def validate(model, loader, args, normalizer):
@@ -457,7 +483,17 @@ loader, test_dataset = get_test_loader(args.data_dir, task=args.task, batch_size
 raw_test = load_initial_tensor(args.data_dir, args.task)
 ```
 
-### 7.2 Task 1 / Task 2 输出
+### 7.2 Harness 预检要求
+
+- `infer.py --dry_run` 必须允许在 checkpoint 尚不存在时先完成：
+  - CLI 解析
+  - 测试集 loader 构建
+  - 输入 / 输出 shape 契约检查
+  - 提交文件前缀一致性约定检查
+- `infer.py --dry_run` 的主要目的是尽早暴露“测试集只有前 10/20 帧，但数据集实现错误地要求更多时间步”这类问题。
+- 预检结果应回写到 `output_dir/preflight.json`，更新 `infer_smoke_ok`。
+
+### 7.3 Task 1 / Task 2 输出
 
 ```python
 future = model.rollout(x, horizon=190, cond=None_or_estimated)
@@ -623,11 +659,13 @@ Step 4: 生成 dataset.py（Task1/2/3 数据加载与 normalizer）
 Step 5: 生成 model.py（FNO、条件化、rollout）
 Step 6: 生成 train.py（训练、验证、checkpoint）
 Step 7: 生成 infer.py（加载 checkpoint、推理、保存 HDF5）
-Step 8: dummy 训练和推理 smoke test
-Step 9: 正式训练，保存 best_checkpoint.pt
-Step 10: 正式推理，验证 shape 和前缀一致性
-Step 11: 导出 time.csv 和 logs.log
-Step 12: final_check 与 package_final
+Step 8: 运行 train.py --dry_run 与 infer.py --dry_run
+Step 9: 运行 train.py --profile_only，得到训练时间估算
+Step 10: 检查 preflight.json；若缺少 estimated_total_train_seconds 或已超预算，先回到代码修改
+Step 11: 正式训练，保存 best_checkpoint.pt
+Step 12: 正式推理，验证 shape 和前缀一致性
+Step 13: 导出 time.csv 和 logs.log
+Step 14: final_check 与 package_final
 ```
 
 对于 Task 3，最重要的提交前检查是：

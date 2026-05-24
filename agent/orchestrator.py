@@ -258,11 +258,12 @@ class ResearchOrchestrator:
         if self.memory.best_iter_id:
             best_exp = self.memory.get_experiment(self.memory.best_iter_id)
             if best_exp:
-                best_iter = f"iter_{best_exp.id}"
-                pred_path = os.path.join(task_root, best_iter, "pred.hdf5")
-                time_path = os.path.join(task_root, best_iter, "time.json")
-                if os.path.exists(pred_path) and os.path.exists(time_path):
-                    return best_iter
+                best_iter = os.path.basename(os.path.normpath(best_exp.iter_dir))
+                if best_iter.startswith("iter_"):
+                    pred_path = os.path.join(task_root, best_iter, "pred.hdf5")
+                    time_path = os.path.join(task_root, best_iter, "time.json")
+                    if os.path.exists(pred_path) and os.path.exists(time_path):
+                        return best_iter
 
         iteration_dirs = []
         for name in os.listdir(task_root):

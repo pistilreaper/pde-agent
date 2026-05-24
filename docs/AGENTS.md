@@ -112,6 +112,7 @@
 2. **禁止直接复制**：Agent **不得**将 `code-ref/` 中的代码直接复制或稍作修改后放入 `code/` 目录作为提交代码。`code/` 目录中的每一行代码都必须是 Agent 在科研迭代过程中**自主构思并生成**的。
 3. **鼓励消化吸收后重构**：Agent 应在理解参考代码核心思想的基础上，结合自己的科研假设和实验需求，重新组织代码结构、重新命名变量、重新设计接口，写出符合当前实验目标的实现。
 4. **日志必须体现自主生成过程**：科研日志中必须包含 Agent 编写代码时的思考过程，例如"我计划设计一个 Chunked FNO 模型，参考 code-ref/model.py 中的谱卷积思想，但我会调整……"，然后实际写出代码。评审会对比 log 中记录的代码生成过程与 `code/` 中文件的内容一致性。
+5. **Task 1 不得默认继承参考实现的数据策略**：`code-ref/` 对 Task 1 只能作为 CLI、HDF5 I/O、评分函数、checkpoint 命名和工程结构的参考；Agent 不能因为 `code-ref/` 这样做，就默认把 `task1_val.hdf5` 切分成训练/验证。Task 1 应优先考虑官方 checkpoint 与 PDEBench 大训练集，`task1_val.hdf5` 默认仅作验证。
 
 ### 3.2 baselines-repo/ 参考基线的github原始仓库使用规范
 
@@ -263,6 +264,13 @@ train_time,inference_time
 ```
 
 `train_time` 是该任务的模型训练总耗时，包含 Agent 思考推理时间；`inference_time` 是该任务在测试集上的推理总耗时，单位秒。
+
+在正式训练前，Agent 应先通过轻量 harness 获得可执行性证据与时间预算：
+
+- `train.py --dry_run`：只做 CLI、数据加载和最小 batch smoke test。
+- `train.py --profile_only --profile_steps N`：估算完整训练耗时。
+- `infer.py --dry_run`：先验证测试集 loader、shape 契约和推理入口，不要求真实 checkpoint 已存在。
+- 上述阶段必须在 `output_dir/preflight.json` 中写出结构化结果；若缺少训练时间估算，不应直接启动正式训练。
 
 **`task{N}_logs.log`**
 

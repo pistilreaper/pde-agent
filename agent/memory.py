@@ -23,11 +23,14 @@ class ExperimentRecord:
     metrics: Dict[str, float] = field(default_factory=dict)  # 评估指标
     validation_score: float = 0.0  # 验证集主分
     inference_time: float = 0.0  # 该 iter 的真实推理耗时
+    train_time_estimate: float = 0.0  # 该 iter 开跑前的训练耗时估算
     iter_dir: str = ""  # 该 iter 对应的输出目录
     has_prediction: bool = False
     has_metrics: bool = False
     has_time: bool = False
     is_submission_ready: bool = False
+    preflight_passed: bool = False
+    preflight_summary: str = ""
     submission_notes: str = ""
     conclusion: str = ""  # 实验结论
     status: str = "running"  # running, success, failed
@@ -131,9 +134,13 @@ class ResearchMemory:
                     lines.append(f"  Metrics: {json.dumps(e.metrics, ensure_ascii=False)}")
                 lines.append(
                     f"  Validation Score: {e.validation_score:.6f} | "
+                    f"Train Estimate: {e.train_time_estimate:.2f}s | "
                     f"Inference Time: {e.inference_time:.6f}s | "
+                    f"Preflight Passed: {e.preflight_passed} | "
                     f"Submission Ready: {e.is_submission_ready}"
                 )
+                if e.preflight_summary:
+                    lines.append(f"  Preflight: {e.preflight_summary}")
                 if e.conclusion:
                     lines.append(f"  Conclusion: {e.conclusion}")
             lines.append("")
@@ -145,6 +152,7 @@ class ResearchMemory:
                 marker = " [CURRENT_BEST_ITER]" if self.best_iter_id == e.id else ""
                 lines.append(
                     f"- Iter {e.id}{marker}: val_score={e.validation_score:.6f}, "
+                    f"train_est={e.train_time_estimate:.2f}s, "
                     f"infer_time={e.inference_time:.6f}s, iter_dir={e.iter_dir}"
                 )
             lines.append("")
